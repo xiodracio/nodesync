@@ -269,10 +269,16 @@ async function win(r){
   finish(j)}
 function finish(j){
   if(j.approved){$("dn").textContent="Access granted. You have been approved into the channel. Taking you to the Member Portal…";setTimeout(()=>{location.href=CFG.NEXT},2200)}
-  else if(j.invite){$("dn").textContent="Payment and sync verified. Tap below to request access, you will be approved automatically.";
-    const a=$("inv");a.hidden=false;a.onclick=()=>{try{TG.openTelegramLink(j.invite)}catch(e){location.href=j.invite}}}
+  else if(j.invite){$("dn").textContent="Sync verified. Tap \u201cRequest to join\u201d in Telegram and you will be approved instantly.";
+    const open=()=>{try{TG.openTelegramLink(j.invite)}catch(e){location.href=j.invite}};
+    const a=$("inv");a.textContent="Request to join channel";a.hidden=false;a.onclick=()=>{open();pollAccess()};
+    setTimeout(()=>{open();pollAccess()},600)}   // opens the join prompt by itself; the bot approves the request the moment it arrives
   else if(j.error==="subscription")api("status").then(route).catch(()=>{});
   else $("dn").textContent="Could not confirm access. Reopen this from the bot and try again."}
+/* after the join prompt opens, keep checking until the bot has approved the request, then continue automatically */
+let polling=false;
+function pollAccess(){if(polling)return;polling=true;let n=0;
+  const t=setInterval(async()=>{n++;try{const r=await api("access");if(r&&r.approved){clearInterval(t);finish(r)}}catch(e){}if(n>60){clearInterval(t);polling=false}},2500)}
 function tick(){
   if(decoded)return;
   const sn=now(),r=Math.floor(sn/R);
