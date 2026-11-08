@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; connect-src https://agzhxwditnlzdcuqjjfz.supabase.co wss://agzhxwditnlzdcuqjjfz.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://telegram.org; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; media-src 'self'; connect-src https://agzhxwditnlzdcuqjjfz.supabase.co wss://agzhxwditnlzdcuqjjfz.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex,nofollow">
 <meta name="color-scheme" content="dark">
@@ -58,10 +58,23 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px}
 .tabs{display:flex;gap:8px;margin-bottom:14px}.tabs .btn{flex:1}.tabs .btn.on{background:var(--accent);color:#0a0a0b;border-color:var(--accent)}
 .done{text-align:center;padding:50px 20px}
 .done .big{font-family:var(--serif);font-size:clamp(40px,11vw,64px);line-height:1.05;margin:14px 0;background:linear-gradient(180deg,#fff 10%,#9ea3ad 70%,#5f636b);-webkit-background-clip:text;background-clip:text;color:transparent}
+#intro{position:fixed;inset:0;z-index:100;background:#000;display:flex;align-items:center;justify-content:center;transition:opacity .8s ease}
+#intro.out{opacity:0;pointer-events:none}
+#intro video{width:100%;height:100%;object-fit:contain;background:#000}
+@media (max-aspect-ratio:3/4){#intro video{object-fit:cover}}
+#intro .ctl{position:absolute;left:0;right:0;bottom:calc(22px + env(safe-area-inset-bottom,0px));display:flex;justify-content:space-between;padding:0 20px}
+#intro .ctl .link{color:#a9adb5;background:rgba(0,0,0,.45);padding:10px 14px;border-radius:999px;text-decoration:none}
+body.introing{overflow:hidden;height:100vh}
 </style>
 </head>
 <body>
 <main>
+
+<!-- INTRO VIDEO -->
+<div id="intro" hidden>
+  <video id="iv" src="intro.mp4" muted playsinline preload="auto" disablepictureinpicture></video>
+  <div class="ctl"><button class="link" id="snd" type="button">Sound on</button><button class="link" id="skip" type="button">Skip</button></div>
+</div>
 
 <!-- BATCH PICKER -->
 <section id="pick" hidden>
@@ -275,6 +288,21 @@ $("leave").onclick=()=>{stopGame();BATCH="";show("pick")};
 
 /* opens straight into the batch picker */
 identify();show("pick");search("");
+
+/* ---------- intro video: plays once per session, skippable, never blocks the app ---------- */
+(function(){
+  const box=$("intro"),v=$("iv");let done=false;
+  try{if(sessionStorage.getItem("ns-intro")){return}}catch(e){}
+  function end(){if(done)return;done=true;try{sessionStorage.setItem("ns-intro","1")}catch(e){}
+    box.classList.add("out");document.body.classList.remove("introing");try{v.pause()}catch(e){}
+    setTimeout(()=>{box.hidden=true},900)}
+  box.hidden=false;document.body.classList.add("introing");
+  v.addEventListener("ended",end);v.addEventListener("error",end);
+  $("skip").onclick=end;
+  $("snd").onclick=()=>{v.muted=!v.muted;$("snd").textContent=v.muted?"Sound on":"Sound off";if(v.paused)v.play().catch(()=>{})};
+  const p=v.play();if(p&&p.catch)p.catch(end);
+  setTimeout(()=>{if(!done&&v.currentTime===0)end()},4000);   // never stuck on a black screen
+})();
 </script>
 </body>
 </html>
