@@ -133,7 +133,7 @@ body.introing{overflow:hidden;height:100vh}
 
   <!-- LIVE CHAT: sits right under the codes. Not stored anywhere; wiped every 3 minutes. -->
   <div class="card chat">
-    <div class="top"><span class="lbl" style="margin:0">Live chat</span><span class="dim" style="font-size:12px">resets in <span id="ct">3:00</span></span></div>
+    <div class="top"><span class="lbl" style="margin:0">Live chat <span id="oc" class="ok" style="letter-spacing:.04em;text-transform:none;margin-left:6px">(1 Online)</span></span><span class="dim" style="font-size:12px">resets in <span id="ct">3:00</span></span></div>
     <div id="msgs" aria-live="polite"></div>
     <form id="cf" autocomplete="off"><input type="text" id="ci" maxlength="200" placeholder="Message your batch" aria-label="Message"><button class="btn sm solid" type="submit">Send</button></form>
     <p class="dim" style="font-size:11px">Messages live only on screen for online members and vanish every 3 minutes.</p>
@@ -161,7 +161,7 @@ const CFG={
   PAY:"https://agzhxwditnlzdcuqjjfz.supabase.co/functions/v1/stars-gate"
 };
 const $=i=>document.getElementById(i),R=CFG.ROUND;
-let CODE="",codes={},pend={},busy=false,lastTry=0,ME="",TGID="",BATCH="",off=0,cur=null,frags=[],slots=[],sent=false,decoded=false,online=1,timers=[];
+let CODE="",codes={},pend={},busy=false,lastTry=0,played={},liveRound=null,LAST="",ME="",TGID="",BATCH="",off=0,cur=null,frags=[],slots=[],sent=false,decoded=false,online=1,timers=[];
 const now=()=>Date.now()+off;
 const H={apikey:CFG.KEY,Authorization:"Bearer "+CFG.KEY,"Content-Type":"application/json"};
 const rest=p=>CFG.PROJECT+"/rest/v1/"+p;
@@ -248,7 +248,7 @@ async function newPuzzle(){
   CODE="";frags=[];slots=[];sent=false;draw();
   const c=await getCode(m);busy=false;
   if(cur!==r0||!c)return;                      // round moved on, or code not loaded yet (tick retries)
-  CODE=c;
+  CODE=c;played[r0]=true;
   const parts=[0,1,2,3,4].map(i=>c.slice(i*2,i*2+2)),r=rng(parseInt(hash(ME+r0),36));let o,n=0;
   do{o=parts.slice();for(let i=4;i>0;i--){const j=Math.floor(r()*(i+1));[o[i],o[j]]=[o[j],o[i]]}}while(o.join("")===c&&++n<20);
   frags=o;draw()}
@@ -276,14 +276,20 @@ function finish(j){
 function tick(){
   if(decoded)return;
   const sn=now(),r=Math.floor(sn/R);
-  if(r!==cur){const prev=cur;cur=r;newPuzzle();if(prev!==null)setTimeout(()=>judge(prev),CFG.GRACE);else setSt("Joined mid-round. Next round starts at the bar reset.","mut")}
+  if(r!==cur){const prev=cur;cur=r;CODE="";frags=[];slots=[];sent=false;
+    if(prev!==null&&played[prev])setTimeout(()=>judge(prev),CFG.GRACE);
+    if(online>=CFG.NEED){                        // sync only starts at a round boundary while 5 members are live
+      liveRound=r;if(/^Waiting/.test($("st").textContent))setSt("");
+      newPuzzle();if(prev===null)setSt("Joined mid-round. Next round starts at the bar reset.","mut")}
+    else{liveRound=null;draw()}}
+  if(liveRound!==cur)setSt(`Waiting for players \u00b7 ${online}/${CFG.NEED} online. Sync starts when ${CFG.NEED} members are live.`,"mut");
   $("bar").style.width=((sn%R)/R*100)+"%";$("t").textContent=((R-sn%R)/1000).toFixed(1);
   const left=CFG.CHAT_MS-(sn%CFG.CHAT_MS);$("ct").textContent=Math.floor(left/60000)+":"+String(Math.floor(left/1000)%60).padStart(2,"0");
   const cl=CODE_MS-(sn%CODE_MS),cm=Math.floor(cl/60000),cs=Math.floor(cl/1000)%60;$("cc").textContent=cm+":"+String(cs).padStart(2,"0");
   if(sn%CODE_MS>CODE_MS-15000)getCode(minOf(sn)+1);       // prefetch the next code so the swap is instant
-  if(!CODE&&!busy&&Date.now()-lastTry>1500&&r===cur)newPuzzle();
+  if(!CODE&&!busy&&Date.now()-lastTry>1500&&liveRound===cur)newPuzzle();
   chatEpoch(sn)}
-async function pulse(){await send("ping");online=await count("ping",now()-9000,now()+1000);$("on").textContent=`nodes online: ${online}/${CFG.NEED}`+(online<CFG.NEED?" · awaiting others":"")}
+async function pulse(){await send("ping");online=await count("ping",now()-9000,now()+1000);$("on").textContent=`nodes online: ${online}/${CFG.NEED}`+(online<CFG.NEED?" · awaiting others":"");$("oc").textContent=`(${online} Online)`}
 
 /* ---------- live chat: Supabase Realtime broadcast, in memory only, wiped every 3 min ---------- */
 let ws=null,ref=0,hb=null,epoch=null;
@@ -312,10 +318,21 @@ $("cf").addEventListener("submit",e=>{
 /* ---------- lifecycle ---------- */
 async function join(b){
   BATCH=b.slice(0,60);const label=b.replace(/^f-(.*)-[a-z0-9]+$/,"$1 (friends)");
-  $("meta").textContent="batch "+label+" · "+ME;$("msgs").textContent="";epoch=null;decoded=false;cur=null;show("game");
+  $("meta").textContent="batch "+label+" · "+ME;$("msgs").textContent="";epoch=null;decoded=false;cur=null;online=1;liveRound=null;played={};LAST=b;$("oc").textContent="(1 Online)";show("game");
   await syncClock();tick();timers=[setInterval(tick,100),setInterval(pulse,3000),setInterval(syncClock,30000)];pulse();chatOpen()}
 function stopGame(){timers.forEach(clearInterval);timers=[];clearInterval(hb);if(ws){const w=ws;ws=null;w.onclose=null;try{w.close()}catch(e){}}}
-$("leave").onclick=()=>{stopGame();BATCH="";show("pick")};
+/* leaving: drop presence at once; a random batch with nobody left is closed on the server */
+function leaveNow(b){if(!b||!INIT)return;try{fetch(CFG.PAY,{method:"POST",headers:H,keepalive:true,body:JSON.stringify({action:"leave",batch:b,initData:INIT})}).catch(()=>{})}catch(e){}}
+const isRandom=b=>/^Random-[A-Z0-9]{4}$/.test(b||"");
+$("leave").onclick=()=>{const b=BATCH;stopGame();BATCH="";LAST="";leaveNow(b);show("pick");search($("q").value.trim())};
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){
+    if(!BATCH||decoded)return;
+    const b=BATCH;leaveNow(b);stopGame();BATCH="";
+    if(isRandom(b)){LAST="";show("pick")}      // random batch: closed, pick again on return
+  }else if(LAST&&!BATCH&&!decoded){join(LAST)}   // other batches: rejoin on return
+});
+window.addEventListener("pagehide",()=>{if(BATCH&&!decoded)leaveNow(BATCH)});
 
 /* ---------- Telegram Stars: 250 one-time entry, then 20/month subscription ---------- */
 const TG=window.Telegram&&Telegram.WebApp,INIT=(TG&&TG.initData)||"";
