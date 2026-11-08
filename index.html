@@ -80,7 +80,7 @@ body.introing{overflow:hidden;height:100vh}
 <section id="gate" hidden>
   <span class="eye">Entry protocol</span>
   <h1>Node<br>Synchronization</h1>
-  <p class="sub" id="gsub">Unlock access to the private channel. One-time entry: 250 &#9733; Telegram Stars.</p>
+  <p class="sub" id="gsub">Unlock access to the private channel. One-time entry: 250 &#9733; Telegram Stars, includes your first month.</p>
   <div class="card c"><button class="btn solid" id="pay" type="button" style="width:100%">Begin Synchronization</button><p class="err" id="pe" role="alert" style="margin:10px 0 0"></p></div>
 </section>
 
@@ -342,15 +342,15 @@ async function api(action,extra){
   if(!r.ok)throw new Error(r.status);return r.json()}
 const enter=()=>{show("pick");search("")};
 function gateMode(m){MODE=m;
-  $("gsub").textContent=m==="entry"?"Unlock access to the private channel. One-time entry: 250 ★ Telegram Stars.":"Entry fee received. Activate monthly access to stay in the channel: 20 ★ every 30 days. Cancel anytime in Telegram.";
+  $("gsub").textContent=m==="entry"?"Unlock access to the private channel. One-time entry: 250 ★ Telegram Stars, includes your first month.":"Your first month is covered by the entry fee. To keep your place in the channel from here on: 20 ★ every 30 days. Cancel anytime in Telegram.";
   $("pay").textContent=m==="entry"?"Begin Synchronization":"Activate monthly access";show("gate")}
-/* where to resume: unpaid -> pay entry; no subscription -> subscribe; already synced -> straight to access; else puzzle */
+/* where to resume: unpaid -> pay entry (covers month 1); paid month ending/over -> 20 ★ monthly; already synced -> straight to access; else puzzle */
 function route(st){
   if(!st.paid)return gateMode("entry");
-  if(!st.sub)return gateMode("sub");
+  if(!st.sub||st.renew)return gateMode("sub");   // monthly 20 ★ is only due when the first paid month is ending or over
   if(st.synced){show("done");return api("access").then(finish).catch(()=>finish({}))}
   enter()}
-async function waitFor(k){for(let i=0;i<12;i++){try{const s=await api("status");if(s[k])return s}catch(e){}await new Promise(r=>setTimeout(r,1000))}return null}
+async function waitFor(k){for(let i=0;i<12;i++){try{const s=await api("status");if(k==="paid"?s.paid:(s.sub&&!s.renew))return s}catch(e){}await new Promise(r=>setTimeout(r,1000))}return null}
 $("pay").onclick=async()=>{
   const b=$("pay"),e=$("pe"),label=b.textContent;e.textContent="";
   if(!INIT){e.textContent="Open this from the Telegram bot to continue.";return}
