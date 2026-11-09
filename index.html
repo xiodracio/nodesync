@@ -83,6 +83,8 @@ const CFG={
 };
 const $=i=>document.getElementById(i);
 const H={apikey:CFG.KEY,Authorization:"Bearer "+CFG.KEY,"Content-Type":"application/json"};
+/* carry Telegram's launch data (#tgWebAppData...) to the portal, otherwise it opens without it and says "Open this from Telegram" */
+const PORTAL=()=>CFG.NEXT+(location.hash||"");
 const show=id=>["gate","done"].forEach(s=>$(s).hidden=s!==id);
 
 /* ---------- Telegram Stars: 250 one-time entry (includes month 1), then 20/month subscription ---------- */
@@ -108,7 +110,7 @@ async function grant(){
   if(!(j&&(j.approved||j.invite))){try{j=await api("claim")}catch(e){}}
   finish(j||{})}
 function finish(j){
-  if(j.approved){$("dn").textContent="Access granted. You have been approved into the channel. Taking you to the Member Portal\u2026";setTimeout(()=>{location.href=CFG.NEXT},2200)}
+  if(j.approved){$("dn").textContent="Access granted. You have been approved into the channel. Taking you to the Member Portal\u2026";setTimeout(()=>{location.href=PORTAL()},2200)}
   else if(j.invite){$("dn").textContent="Payment confirmed. Tap \u201cRequest to join\u201d in Telegram and you will be approved instantly.";
     const open=()=>{try{TG.openTelegramLink(j.invite)}catch(e){location.href=j.invite}};
     const a=$("inv");a.textContent="Request to join channel";a.hidden=false;a.onclick=()=>{open();pollAccess()};
@@ -135,6 +137,7 @@ $("pay").onclick=async()=>{
       b.disabled=false;b.textContent=label});
   }catch(x){e.textContent="Could not start payment. Reopen from the bot.";b.disabled=false}};
 
+$("go").href=PORTAL();
 /* boot: resume wherever this Telegram user left off, so nothing is ever paid twice */
 show("gate");
 if(!INIT)$("pe").textContent="Open this from the Telegram bot to continue.";
