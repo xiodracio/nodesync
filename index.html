@@ -89,7 +89,9 @@ try{if(TG){TG.ready();TG.expand()}}catch(e){}
 let MODE="entry",rerouted=false;
 async function api(action,extra){
   const r=await fetch(CFG.PAY,{method:"POST",headers:H,body:JSON.stringify({action,initData:INIT,...extra})});
-  if(!r.ok)throw new Error(r.status);return r.json()}
+  let j={};try{j=await r.json()}catch(_){}
+  if(!r.ok){const er=new Error((j&&j.error)||("HTTP "+r.status));er.status=r.status;er.code=j&&j.error;throw er}
+  return j}
 function gateMode(m){MODE=m;
   $("gsub").textContent=m==="entry"?"Unlock access to the private channel. One-time entry: 250 \u2605 Telegram Stars, includes your first month.":"Your first month is covered by the entry fee. To keep your place in the channel from here on: 20 \u2605 every 30 days. Cancel anytime in Telegram.";
   $("pay").textContent=m==="entry"?"Unlock access":"Activate monthly access";show("gate")}
@@ -118,20 +120,48 @@ function finish(j){
 let polling=false;
 function pollAccess(){if(polling)return;polling=true;let n=0;
   const t=setInterval(async()=>{n++;try{const r=await api("access");if(r&&r.approved){clearInterval(t);finish(r)}}catch(e){}if(n>60){clearInterval(t);polling=false}},2500)}
-async function waitFor(k){for(let i=0;i<12;i++){try{const s=await api("status");if(k==="paid"?s.paid:(s.sub&&!s.renew))return s}catch(e){}await new Promise(r=>setTimeout(r,1000))}return null}
+async function waitFor(k,n=12){for(let i=0;i<n;i++){try{const s=await api("status");if(k==="paid"?s.paid:(s.sub&&!s.renew))return s}catch(e){}await new Promise(r=>setTimeout(r,1000))}return null}
 $("pay").onclick=async()=>{
   const b=$("pay"),e=$("pe"),label=b.textContent;e.textContent="";
   if(!INIT){e.textContent="Open this from the Telegram bot to continue.";return}
   b.disabled=true;
+  const reset=()=>{b.disabled=false;b.textContent=label};
+  /* wait for the bot webhook to record the payment, then continue */
+  const confirm=async()=>{b.textContent="Confirming\u2026";const s=await waitFor(MODE==="entry"?"paid":"sub");
+    if(s){reset();return route(s)}
+    e.textContent="Payment received, still confirming. Reopen in a moment.";reset()};
+
+  /* 1) ask the server for an invoice link */
+  let link;
   try{
-    const {link}=await api("invoice",{kind:MODE});
+    const r=await api("invoice",{kind:MODE});
+    link=r&&r.link;
+    if(!link)throw new Error("no invoice link returned");
+  }catch(x){
+    // already paid / existing member / not due yet: the server says so with 409, so just re-route from the real status
+    if(x.status===409||x.status===402){try{return route(await api("status"))}catch(_){}}
+    e.textContent=x.status===401?"Session expired. Close this window and reopen it from the bot."
+      :"Could not create the invoice ("+(x.code||x.message)+"). Please try again.";
+    return reset()}
+
+  /* 2) open the Telegram Stars payment sheet */
+  try{
+    if(TG.isVersionAtLeast&&!TG.isVersionAtLeast("6.1"))throw new Error("Telegram is out of date");
     TG.openInvoice(link,async st=>{
-      if(st==="paid"){b.textContent="Confirming\u2026";const s=await waitFor(MODE==="entry"?"paid":"sub");
-        if(s){b.disabled=false;b.textContent=label;return route(s)}
-        e.textContent="Payment received, still confirming. Reopen in a moment."}
-      else if(st==="failed")e.textContent="Payment failed. Try again.";
-      b.disabled=false;b.textContent=label});
-  }catch(x){e.textContent="Could not start payment. Reopen from the bot.";b.disabled=false}};
+      if(st==="paid")return confirm();
+      if(st==="failed")e.textContent="Payment failed. Try again.";
+      reset()});
+  }catch(x){
+    // fallback: open the invoice link as a normal Telegram link and watch for the payment to land
+    try{
+      TG.openTelegramLink(link);
+      e.textContent="Complete the payment in Telegram, then come back here.";
+      const s=await waitFor(MODE==="entry"?"paid":"sub",90);
+      if(s){e.textContent="";reset();return route(s)}
+      reset();
+    }catch(y){
+      e.textContent="Could not open the payment window ("+((x&&x.message)||x)+"). Update Telegram and try again.";
+      reset()}}};
 
 /* boot: resume wherever this Telegram user left off, so nothing is ever paid twice */
 show("gate");
