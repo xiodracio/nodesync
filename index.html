@@ -30,6 +30,13 @@ h1{font-size:clamp(34px,9vw,46px);margin-top:10px}
 .btn.solid{background:var(--accent);color:#0a0a0b;border-color:var(--accent)}
 .btn.solid:hover{background:#fff}
 .btn:disabled{opacity:.55;cursor:default}
+.btn.loading{position:relative;overflow:hidden;pointer-events:none}
+.btn.solid.loading:disabled{opacity:1}
+.btn.loading::before{content:"";flex:none;width:14px;height:14px;border:2px solid rgba(10,10,11,.22);border-top-color:#0a0a0b;border-radius:50%;animation:spin .7s linear infinite}
+.btn.loading::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.6) 50%,transparent 70%);transform:translateX(-100%);animation:sheen 1.4s ease-in-out infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes sheen{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.btn.loading::after{animation:none}}
 .err{min-height:1.5em;margin:2px 0 8px;color:var(--bad);font-size:13px}
 .mut{color:var(--mute)}
 .link{background:none;border:0;color:var(--dim);font:inherit;font-size:11px;letter-spacing:.22em;text-transform:uppercase;cursor:pointer;text-decoration:underline;text-underline-offset:4px}
@@ -86,7 +93,9 @@ const show=id=>["gate","done"].forEach(s=>$(s).hidden=s!==id);
 /* ---------- Telegram Stars: 250 one-time entry (includes month 1), then 20/month subscription ---------- */
 const TG=window.Telegram&&Telegram.WebApp,INIT=(TG&&TG.initData)||"";
 try{if(TG){TG.ready();TG.expand()}}catch(e){}
-let MODE="entry",rerouted=false;
+let MODE="entry",rerouted=false,PRE=null;
+/* warm up: create the invoice link in the background while the user reads the page */
+function prefetch(){if(!INIT)return;PRE=api("invoice",{kind:MODE}).then(r=>(r&&r.link)||null).catch(()=>null)}
 async function api(action,extra){
   const r=await fetch(CFG.PAY,{method:"POST",headers:H,body:JSON.stringify({action,initData:INIT,...extra})});
   let j={};try{j=await r.json()}catch(_){}
@@ -94,7 +103,7 @@ async function api(action,extra){
   return j}
 function gateMode(m){MODE=m;
   $("gsub").textContent=m==="entry"?"Unlock access to the private channel. One-time entry: 250 \u2605 Telegram Stars, includes your first month.":"Your first month is covered by the entry fee. To keep your place in the channel from here on: 20 \u2605 every 30 days. Cancel anytime in Telegram.";
-  $("pay").textContent=m==="entry"?"Unlock access":"Activate monthly access";show("gate")}
+  $("pay").textContent=m==="entry"?"Unlock access":"Activate monthly access";show("gate");prefetch()}
 /* where to resume: never paid -> pay entry (covers month 1); paid month ending/over -> 20 \u2605 monthly; otherwise straight into the channel */
 function route(st){
   if(!(st.paid||st.synced))return gateMode("entry");   // members already on record are never asked for the entry fee again
@@ -124,8 +133,8 @@ async function waitFor(k,n=12){for(let i=0;i<n;i++){try{const s=await api("statu
 $("pay").onclick=async()=>{
   const b=$("pay"),e=$("pe"),label=b.textContent;e.textContent="";
   if(!INIT){e.textContent="Open this from the Telegram bot to continue.";return}
-  b.disabled=true;
-  const reset=()=>{b.disabled=false;b.textContent=label};
+  b.disabled=true;b.classList.add("loading");b.textContent="Synchronizing\u2026";
+  const reset=()=>{b.disabled=false;b.classList.remove("loading");b.textContent=label};
   /* wait for the bot webhook to record the payment, then continue */
   const confirm=async()=>{b.textContent="Confirming\u2026";const s=await waitFor(MODE==="entry"?"paid":"sub");
     if(s){reset();return route(s)}
@@ -134,8 +143,8 @@ $("pay").onclick=async()=>{
   /* 1) ask the server for an invoice link */
   let link;
   try{
-    const r=await api("invoice",{kind:MODE});
-    link=r&&r.link;
+    link=PRE?await PRE:null;PRE=null;                       // already created in the background? use it instantly
+    if(!link){const r=await api("invoice",{kind:MODE});link=r&&r.link}
     if(!link)throw new Error("no invoice link returned");
   }catch(x){
     // already paid / existing member / not due yet: the server says so with 409, so just re-route from the real status
